@@ -1,0 +1,27 @@
+[build-system]
+requires = [ "poetry-core",]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "snakemake-executor-plugin-pbs"
+version = "0.1.0"
+description = ""
+authors = [ "Daniel O'Hanlon",]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/your/plugin"
+documentation = "https://snakemake.github.io/snakemake-plugin-catalog/plugins/executor/pbs.html"
+[[tool.poetry.packages]]
+include = "snakemake_executor_plugin_pbs"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+snakemake-interface-common = "^1.17.2"
+snakemake-interface-executor-plugins = "^9.2.0"
+
+[tool.poetry.group.dev.dependencies]
+black = "^24.4.2"
+flake8 = "^7.1.0"
+coverage = "^7.6.0"
+pytest = "^8.3.2"
+snakemake = "^8.16.0"
