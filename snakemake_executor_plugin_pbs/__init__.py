@@ -61,7 +61,9 @@ def writeBashScript(location, name, command):
 
 def lastline(filename):
     # Assuming filename exists
-    return subprocess.check_output(["tail", "-1", filename])
+    return subprocess.check_output(
+        f"grep 'exit status' {filename} | tail -1", shell=True
+    )
 
 
 @dataclass
