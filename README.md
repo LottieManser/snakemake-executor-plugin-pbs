@@ -1,6 +1,6 @@
 # Snakemake PBS executor plugin
 
-This is a plugin for the [Snakemake](https://snakemake.readthedocs.io/en/stable/) workflow management system that allows you to submit jobs to a PBS cluster. Specifically, this also includes a workaround for cases where the job status of a completed job is not reported.
+This is a plugin for the [Snakemake](https://snakemake.readthedocs.io/en/stable/) workflow management system (Snakemake >= 8) that allows you to submit jobs to a PBS cluster. Specifically, this also includes a workaround for cases where the job status of a completed job is not reported.
 
 ## Installation
 
