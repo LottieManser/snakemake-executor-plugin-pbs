@@ -12,5 +12,4 @@ class TestWorkflowsBase(snakemake.common.tests.TestWorkflowsBase):
         return "pbs"
 
     def get_executor_settings(self) -> Optional[ExecutorSettingsBase]:
-        # instantiate ExecutorSettings of this plugin as appropriate
-        ...
+        return None

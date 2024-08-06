@@ -1,5 +1,4 @@
 import os
-import stat
 
 from dataclasses import dataclass, field
 from typing import List, Generator, Optional
@@ -13,46 +12,57 @@ from snakemake_interface_executor_plugins.jobs import JobExecutorInterface
 from snakemake_interface_common.exceptions import WorkflowError  # noqa
 import subprocess
 
+
 def writePBSScript(name, resources, command):
 
     home = os.path.expanduser("~")
-    location = home + '/jobs/' + name + '_job.sh'
+    location = home + "/jobs/" + name + "_job.sh"
 
-    script = r'#!/bin/bash' + '\n'
-    script += f'#PBS -o {home}/logs/'+ name + '_out.log' + '\n'
-    script += f'#PBS -e {home}/logs/'+ name + '_err.log' + '\n'
-    script += r'#PBS -l walltime=' + str(resources.walltime) + '\n'
-    script += r'#PBS -lselect=1:ncpus='+ str(resources.cpus) + ':mem=' + str(resources.mem) + 'gb' + '\n'
-    script += r'#PBS -N ' + name + '\n'
-    script += r'#PBS -V' + '\n'
-    script += r'cd $PBS_O_WORKDIR;' + '\n'
-    script += 'time ' + command
+    script = r"#!/bin/bash" + "\n"
+    script += f"#PBS -o {home}/logs/" + name + "_out.log" + "\n"
+    script += f"#PBS -e {home}/logs/" + name + "_err.log" + "\n"
+    script += r"#PBS -l walltime=" + str(resources.walltime) + "\n"
+    script += (
+        r"#PBS -lselect=1:ncpus="
+        + str(resources.cpus)
+        + ":mem="
+        + str(resources.mem)
+        + "gb"
+        + "\n"
+    )
+    script += r"#PBS -N " + name + "\n"
+    script += r"#PBS -V" + "\n"
+    script += r"cd $PBS_O_WORKDIR;" + "\n"
+    script += "time " + command
 
-    f = open(location, 'w')
+    f = open(location, "w")
     f.write(script)
     f.close()
 
     return location
 
+
 def writeBashScript(location, name, command):
 
-    fileName = location + '/' + name + '.sh'
+    fileName = location + "/" + name + ".sh"
 
-    f = open(fileName, 'w')
-    f.write(r'#!/bin/bash' + '\n')
-    f.write(f'cd {os.getcwd()};' + '\n')
-    f.write(command + '\n')
-    f.write('echo "exit status: $?"' +'\n') # Exit status for bookkeeping
+    f = open(fileName, "w")
+    f.write(r"#!/bin/bash" + "\n")
+    f.write(f"cd {os.getcwd()};" + "\n")
+    f.write(command + "\n")
+    f.write('echo "exit status: $?"' + "\n")  # Exit status for bookkeeping
     f.close()
 
     # Make the file executable
-    subprocess.call(['chmod', '+x', fileName])
+    subprocess.call(["chmod", "+x", fileName])
 
     return fileName
 
+
 def lastline(filename):
     # Assuming filename exists
-    return subprocess.check_output(['tail', '-1', filename])
+    return subprocess.check_output(["tail", "-1", filename])
+
 
 @dataclass
 class ExecutorSettings(ExecutorSettingsBase):
@@ -90,20 +100,22 @@ class Executor(RemoteExecutor):
 
         home = os.path.expanduser("~")
 
-        if not os.path.exists(home + '/logs'):
-            os.makedirs(home + '/logs')
-            os.makedirs(home + '/jobs')
+        if not os.path.exists(home + "/logs"):
+            os.makedirs(home + "/logs")
+            os.makedirs(home + "/jobs")
 
-        name = f'{job.rule.name}.{job.jobid}'
+        name = f"{job.rule.name}.{job.jobid}"
 
-        bashLoc = writeBashScript(home + '/jobs', name, job_cmd)
+        bashLoc = writeBashScript(home + "/jobs", name, job_cmd)
         scriptLoc = writePBSScript(name, job.resources, bashLoc)
 
         cmd = f"qsub {scriptLoc}"
 
         try:
             # Submit the job to PBS
-            result = subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True)
+            result = subprocess.run(
+                cmd, shell=True, check=True, capture_output=True, text=True
+            )
             job_id = result.stdout.strip()
             job_info = SubmittedJobInfo(job=job, external_jobid=job_id)
             self.report_job_submission(job_info)
@@ -118,7 +130,7 @@ class Executor(RemoteExecutor):
                 cmd = f"qstat {job.external_jobid}"
                 result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
 
-                name = f'{job.job.rule.name}.{job.job.jobid}'
+                name = f"{job.job.rule.name}.{job.job.jobid}"
 
                 if result.returncode != 0:  # Job is not found
 
@@ -127,7 +139,7 @@ class Executor(RemoteExecutor):
                     logFile = f"{home}/logs/{name}_out.log"
 
                     # Check the logs to get the exit status
-                    # (This might be a race condition if the job finishes between the qstat and the check of the log file)
+                    # (This might be a race condition)
                     if os.path.exists(logFile):
                         statusline = lastline(logFile)
                         exit_status = int(statusline.split()[-1])
