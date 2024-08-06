@@ -22,14 +22,32 @@ def writePBSScript(name, resources, command):
     script += f"#PBS -o {home}/logs/" + name + "_out.log" + "\n"
     script += f"#PBS -e {home}/logs/" + name + "_err.log" + "\n"
     script += r"#PBS -l walltime=" + str(resources.walltime) + "\n"
-    script += (
-        r"#PBS -lselect=1:ncpus="
-        + str(resources.cpus)
-        + ":mem="
-        + str(resources.mem)
-        + "gb"
-        + "\n"
-    )
+
+    if hasattr(resources, "ngpus") and resources.ngpus > 0:
+        select = (
+            r"#PBS -lselect=1:ncpus="
+            + str(resources.ncpus)
+            + ":mem="
+            + str(resources.mem)
+            + "gb"
+            + ":ngpus="
+            + str(resources.ngpus)
+        )
+        if hasattr(resources, "gpu_type"):
+            select += ":gpu_type=" + resources.gpu_type
+        select += "\n"
+    else:
+        select = (
+            r"#PBS -lselect=1:ncpus="
+            + str(resources.ncpus)
+            + ":mem="
+            + str(resources.mem)
+            + "gb"
+            + "\n"
+        )
+
+    script += select
+
     script += r"#PBS -N " + name + "\n"
     script += r"#PBS -V" + "\n"
     script += r"cd $PBS_O_WORKDIR;" + "\n"

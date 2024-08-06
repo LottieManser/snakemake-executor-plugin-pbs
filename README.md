@@ -23,7 +23,15 @@ jobs: 100
 default-resources:
     mem: "8"
     walltime: 1:00
-    cpus: 1
+    ncpus: 1
+
+set-resources:
+    gpu_job:
+        mem: "4"
+        walltime: 5:00
+        ncpus: 1
+        ngpus: 1
+        gpu_type: "A40"
 ```
 
-where this can be placed in a `pbs` directory in the working directory, and passed to snakemake via `--profile pbs`.
+where this can be placed in a `pbs` directory in the working directory, and passed to snakemake via `--profile pbs`. If resources are not listed under rule names in the `set-resources` section (such as those for `gpu-job` in this example), then they will be taken from `default-resources`.
