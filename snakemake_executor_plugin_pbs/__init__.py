@@ -23,12 +23,12 @@ def writePBSScript(name, resources, array_size, bash_script_path):
     script += f"#PBS -l walltime={resources.walltime}\n"
 
     if hasattr(resources, "ngpus") and resources.ngpus > 0:
-        select = f"#PBS -lselect=1:ncpus={resources.ncpus}:mem={resources.mem}gb:ngpus={resources.ngpus}"
+        select = f"#PBS -lselect=1:ncpus={resources.ncpus}:ompthreads={resources.ncpus}:mem={resources.mem}gb:ngpus={resources.ngpus}"
         if hasattr(resources, "gpu_type"):
             select += f":gpu_type={resources.gpu_type}"
         select += "\n"
     else:
-        select = f"#PBS -lselect=1:ncpus={resources.ncpus}:mem={resources.mem}gb\n"
+        select = f"#PBS -lselect=1:ncpus={resources.ncpus}:ompthreads={resources.ncpus}:mem={resources.mem}gb\n"
 
     script += select
     script += f"#PBS -N {name}\n"
