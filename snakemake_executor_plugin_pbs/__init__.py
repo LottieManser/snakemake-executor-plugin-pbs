@@ -27,6 +27,8 @@ def writePBSScript(name, resources, command):
         select = (
             r"#PBS -lselect=1:ncpus="
             + str(resources.ncpus)
+            + ":ompthreads="
+            + str(resources.ncpus)
             + ":mem="
             + str(resources.mem)
             + "gb"
@@ -126,8 +128,8 @@ class Executor(RemoteExecutor):
 
         name = f"{job.rule.name}.{job.jobid}"
 
-        env = subprocess.check_output('export -p', shell = True).decode('utf-8')
-        job_cmd = env + '\n' + job_cmd
+        env = subprocess.check_output("export -p", shell=True).decode("utf-8")
+        job_cmd = env + "\n" + job_cmd
 
         bashLoc = writeBashScript(home + "/jobs", name, job_cmd)
         scriptLoc = writePBSScript(name, job.resources, bashLoc)
