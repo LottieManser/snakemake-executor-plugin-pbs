@@ -1,5 +1,7 @@
 import os
 
+import re
+
 from collections import defaultdict
 
 from dataclasses import dataclass, field
@@ -20,8 +22,17 @@ def writePBSScript(name, resources, array_size, bash_script_path):
     location = f"{home}/jobs/{name}_job.sh"
 
     script = "#!/bin/bash\n"
-    script += f"#PBS -o {home}/logs/{name}_^array_index^_out.log\n"
-    script += f"#PBS -e {home}/logs/{name}_^array_index^_err.log\n"
+
+    if array_size > 1:
+
+        script += f"#PBS -o {home}/logs/{name}.^array_index^_out.log\n"
+        script += f"#PBS -e {home}/logs/{name}.^array_index^_err.log\n"
+
+    else:
+
+        script += f"#PBS -o {home}/logs/{name}_out.log\n"
+        script += f"#PBS -e {home}/logs/{name}_err.log\n"
+
     script += f"#PBS -l walltime={resources.walltime}\n"
 
     if hasattr(resources, "ngpus") and resources.ngpus > 0:
@@ -35,7 +46,8 @@ def writePBSScript(name, resources, array_size, bash_script_path):
     script += select
     script += f"#PBS -N {name}\n"
     script += "#PBS -V\n"
-    script += f"#PBS -J 0-{array_size-1}\n"  # Array job range
+    if array_size > 1:
+        script += f"#PBS -J 0-{array_size-1}\n"  # Array job range
     script += "cd $PBS_O_WORKDIR;\n"
     script += f"{bash_script_path}\n"  # Run the bash script
 
@@ -57,7 +69,7 @@ def writeBashScript(location, name, env, commands):
             # For single jobs, directly write the command
             f.write(f"{commands[0]}\n")
         else:
-            # For array jobs, use a case statement to pick the command based on PBS_ARRAY_INDEX
+            # For array jobs, use a case statement to pick the command based on PBS_ARRAY_INDEX (could be PBS_ARRAYID sometimes, which is nice?)
             f.write("echo $PBS_ARRAY_INDEX\n")
             f.write("case $PBS_ARRAY_INDEX in\n")
             for index, command in enumerate(commands):
@@ -110,6 +122,9 @@ class Executor(RemoteExecutor):
         self.workflow.executor_settings
         self.job_groups = defaultdict(list)
 
+        # Just to keep track of how to monitor these
+        self.array_jobs = set()
+
     def run_job(self, job: JobExecutorInterface):
         # Group jobs by rule name for array job submission
 
@@ -121,6 +136,7 @@ class Executor(RemoteExecutor):
         # otherwise for array jobs?
 
         for job in jobs:
+            self.array_jobs.add(job.rule.name)
             self.job_groups[job.rule.name].append(job)
 
         self.submit_jobs()
@@ -149,11 +165,8 @@ class Executor(RemoteExecutor):
         env = subprocess.check_output("export -p", shell=True).decode("utf-8")
 
         for index, job in enumerate(jobs):
-            name = f"{job.rule.name}.{job.jobid}"
             job_cmd = self.format_job_exec(job)
             job_commands.append(job_cmd)
-
-        print(job_commands)
 
         # Create a single bash script that can execute any command based on PBS_ARRAYID
         bashLoc = writeBashScript(home + "/jobs", rule_name, env, job_commands)
@@ -202,10 +215,24 @@ class Executor(RemoteExecutor):
     ) -> Generator[SubmittedJobInfo, None, None]:
         async with self.status_rate_limiter:
             for job in active_jobs:
+
+                # For array jobs this is (eg) 2302[] for the parent job, and 2302[0] for the subjobs
+                array_job = job.job.rule.name in self.array_jobs
+
                 cmd = f"qstat {job.external_jobid}"
+
+                if array_job:
+
+                    # Parse the weird id format, e.g.,  2939[].pbs[9]
+                    # Let's assume this works perfectly for now...
+
+                    job_id, subjob_id = matches = re.findall(r'\d+', job.external_jobid)
+
+                    cmd = f"qstat -t {job_id}[{subjob_id}]"
+
                 result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
 
-                name = f"{job.job.rule.name}.{job.job.jobid}"
+                name = f"{job.job.rule.name}.{subjob_id if array_job else job.jobid}"
 
                 if result.returncode != 0:  # Job is not found
 
