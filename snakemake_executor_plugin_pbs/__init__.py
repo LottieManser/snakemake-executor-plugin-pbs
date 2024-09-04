@@ -1,5 +1,7 @@
 import os
 
+from collections import defaultdict
+
 from dataclasses import dataclass, field
 from typing import List, Generator, Optional
 from snakemake_interface_executor_plugins.executors.base import SubmittedJobInfo
@@ -18,8 +20,8 @@ def writePBSScript(name, resources, array_size, bash_script_path):
     location = f"{home}/jobs/{name}_job.sh"
 
     script = "#!/bin/bash\n"
-    script += f"#PBS -o {home}/logs/{name}_out.log\n"
-    script += f"#PBS -e {home}/logs/{name}_err.log\n"
+    script += f"#PBS -o {home}/logs/{name}_^array_index^_out.log\n"
+    script += f"#PBS -e {home}/logs/{name}_^array_index^_err.log\n"
     script += f"#PBS -l walltime={resources.walltime}\n"
 
     if hasattr(resources, "ngpus") and resources.ngpus > 0:
@@ -43,22 +45,24 @@ def writePBSScript(name, resources, array_size, bash_script_path):
     return location
 
 
-def writeBashScript(location, name, commands):
+def writeBashScript(location, name, env, commands):
 
     fileName = f"{location}/{name}.sh"
 
     with open(fileName, "w") as f:
         f.write("#!/bin/bash\n")
         f.write("cd $PBS_O_WORKDIR;\n")
-
+        f.write(f"{env}\n")
         if len(commands) == 1:
             # For single jobs, directly write the command
             f.write(f"{commands[0]}\n")
         else:
-            # For array jobs, use a case statement to pick the command based on PBS_ARRAYID
-            f.write("case $PBS_ARRAYID in\n")
+            # For array jobs, use a case statement to pick the command based on PBS_ARRAY_INDEX
+            f.write("echo $PBS_ARRAY_INDEX\n")
+            f.write("case $PBS_ARRAY_INDEX in\n")
             for index, command in enumerate(commands):
                 f.write(f"{index}) {command} ;;\n")
+            f.write(f"*) echo 'No matching case' ;;\n")
             f.write("esac\n")
 
         f.write('echo "exit status: $?"\n')  # Exit status for bookkeeping
@@ -108,7 +112,18 @@ class Executor(RemoteExecutor):
 
     def run_job(self, job: JobExecutorInterface):
         # Group jobs by rule name for array job submission
+
         self.job_groups[job.rule.name].append(job)
+        self.submit_jobs()
+
+    def run_jobs(self, jobs: List[JobExecutorInterface]):
+        # I think it defaults to this and falls back to run_job
+        # otherwise for array jobs?
+
+        for job in jobs:
+            self.job_groups[job.rule.name].append(job)
+
+        self.submit_jobs()
 
     def submit_jobs(self):
         home = os.path.expanduser("~")
@@ -126,35 +141,40 @@ class Executor(RemoteExecutor):
                 self.submit_single_job(jobs[0], home)
 
 
-def submit_array_job(self, jobs, rule_name, home):
-    # Create a mapping of array index to job command
-    job_commands = []
-    array_indices = list(range(len(jobs)))  # Indices will be from 0 to len(jobs)-1
+    def submit_array_job(self, jobs, rule_name, home):
+        # Create a mapping of array index to job command
+        job_commands = []
+        array_indices = list(range(len(jobs)))  # Indices will be from 0 to len(jobs)-1
 
-    for index, job in enumerate(jobs):
-        name = f"{job.rule.name}.{job.jobid}"
         env = subprocess.check_output("export -p", shell=True).decode("utf-8")
-        job_cmd = env + "\n" + self.format_job_exec(job)
-        job_commands.append(job_cmd)
 
-    # Create a single bash script that can execute any command based on PBS_ARRAYID
-    bashLoc = writeBashScript(home + "/jobs", rule_name, job_commands)
-
-    # Create a single PBS script for the array job
-    scriptLoc = writePBSScript(rule_name, jobs[0].resources, len(jobs), bashLoc)
-
-    cmd = f"qsub -t 0-{len(array_indices)-1} {scriptLoc}"
-
-    try:
-        result = subprocess.run(
-            cmd, shell=True, check=True, capture_output=True, text=True
-        )
-        job_id = result.stdout.strip()
         for index, job in enumerate(jobs):
-            job_info = SubmittedJobInfo(job=job, external_jobid=f"{job_id}[{index}]")
-            self.report_job_submission(job_info)
-    except subprocess.CalledProcessError as e:
-        raise WorkflowError(f"Failed to submit array job: {e.stderr}")
+            name = f"{job.rule.name}.{job.jobid}"
+            job_cmd = self.format_job_exec(job)
+            job_commands.append(job_cmd)
+
+        print(job_commands)
+
+        # Create a single bash script that can execute any command based on PBS_ARRAYID
+        bashLoc = writeBashScript(home + "/jobs", rule_name, env, job_commands)
+
+        # Create a single PBS script for the array job
+        scriptLoc = writePBSScript(rule_name, jobs[0].resources, len(jobs), bashLoc)
+
+        cmd = f"qsub {scriptLoc}"
+
+        print(f'Submitting array job: {cmd}')
+
+        try:
+            result = subprocess.run(
+                cmd, shell=True, check=True, capture_output=True, text=True
+            )
+            job_id = result.stdout.strip()
+            for index, job in enumerate(jobs):
+                job_info = SubmittedJobInfo(job=job, external_jobid=f"{job_id}[{index}]")
+                self.report_job_submission(job_info)
+        except subprocess.CalledProcessError as e:
+            raise WorkflowError(f"Failed to submit array job: {e.stderr}")
 
     def submit_single_job(self, job, home):
         name = f"{job.rule.name}.{job.jobid}"
@@ -162,7 +182,7 @@ def submit_array_job(self, jobs, rule_name, home):
         job_cmd = env + "\n" + self.format_job_exec(job)
 
         # Use a list with one command for single jobs
-        bashLoc = writeBashScript(home + "/jobs", name, [job_cmd])
+        bashLoc = writeBashScript(home + "/jobs", name, env, [job_cmd])
         scriptLoc = writePBSScript(name, job.resources, 1, bashLoc)
 
         cmd = f"qsub {scriptLoc}"
