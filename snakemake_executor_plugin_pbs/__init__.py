@@ -16,6 +16,9 @@ from snakemake_interface_executor_plugins.jobs import JobExecutorInterface
 from snakemake_interface_common.exceptions import WorkflowError  # noqa
 import subprocess
 
+# ANSI escape codes for colors
+GREEN = "\033[32m"
+NOTGREEN = "\033[0m"
 
 def writePBSScript(name, resources, array_size, bash_script_path):
     home = os.path.expanduser("~")
@@ -176,18 +179,28 @@ class Executor(RemoteExecutor):
 
         cmd = f"qsub {scriptLoc}"
 
-        print(f'Submitting array job: {cmd}')
+        print(f"{GREEN}Submitting array job: {cmd}{NOTGREEN}")  # Log the array job submission command with green color
 
         try:
             result = subprocess.run(
                 cmd, shell=True, check=True, capture_output=True, text=True
             )
             job_id = result.stdout.strip()
+
+            # Log details for each sub-job in the array with green color
             for index, job in enumerate(jobs):
+                print(f"{GREEN}Submitting sub-job {index} of array job {job_id} with rule {job.rule.name}{NOTGREEN}")
                 job_info = SubmittedJobInfo(job=job, external_jobid=f"{job_id}[{index}]")
                 self.report_job_submission(job_info)
         except subprocess.CalledProcessError as e:
             raise WorkflowError(f"Failed to submit array job: {e.stderr}")
+
+    def report_job_submission(self, job_info):
+        job = job_info.job
+        external_jobid = job_info.external_jobid
+        # Print or log details about the job submission in green
+        print(f"{GREEN}Job {job.jobid} ({job.rule.name}) submitted with external ID {external_jobid}{NOTGREEN}")
+        super().report_job_submission(job_info)
 
     def submit_single_job(self, job, home):
         name = f"{job.rule.name}.{job.jobid}"
