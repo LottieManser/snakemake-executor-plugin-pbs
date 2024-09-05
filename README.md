@@ -2,6 +2,8 @@
 
 This is a plugin for the [Snakemake](https://snakemake.readthedocs.io/en/stable/) workflow management system (Snakemake >= 8) that allows you to submit jobs to a PBS cluster. Specifically, this also includes a workaround for cases where the job status of a completed job is not reported.
 
+One important caveat is that this is currently configured for use with flavour of PBS and configuration used at Imperial College London, so your mileage may vary.
+
 ## Installation
 
 To install the plugin, pip install the checked out repository:
