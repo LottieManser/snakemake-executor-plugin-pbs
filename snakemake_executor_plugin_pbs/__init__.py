@@ -131,6 +131,7 @@ class Executor(RemoteExecutor):
     def run_job(self, job: JobExecutorInterface):
         # Group jobs by rule name for array job submission
 
+
         self.job_groups[job.rule.name].append(job)
         self.submit_jobs()
 
@@ -138,11 +139,16 @@ class Executor(RemoteExecutor):
         # I think it defaults to this and falls back to run_job
         # otherwise for array jobs?
 
-        for job in jobs:
-            self.array_jobs.add(job.rule.name)
-            self.job_groups[job.rule.name].append(job)
+        if len(jobs) <= 1:
+            self.run_job(jobs[0])
 
-        self.submit_jobs()
+        else:
+
+            for job in jobs:
+                self.array_jobs.add(job.rule.name)
+                self.job_groups[job.rule.name].append(job)
+
+            self.submit_jobs()
 
     def submit_jobs(self):
         home = os.path.expanduser("~")
@@ -152,6 +158,7 @@ class Executor(RemoteExecutor):
             os.makedirs(home + "/jobs")
 
         for rule_name, jobs in self.job_groups.items():
+
             if len(jobs) > 1:
                 # Create an array job
                 self.submit_array_job(jobs, rule_name, home)
@@ -245,7 +252,7 @@ class Executor(RemoteExecutor):
 
                 result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
 
-                name = f"{job.job.rule.name}.{subjob_id if array_job else job.jobid}"
+                name = f"{job.job.rule.name}.{subjob_id if array_job else job.job.jobid}"
 
                 if result.returncode != 0:  # Job is not found
 
