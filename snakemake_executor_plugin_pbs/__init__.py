@@ -131,13 +131,10 @@ class Executor(RemoteExecutor):
     def run_job(self, job: JobExecutorInterface):
         # Group jobs by rule name for array job submission
 
-
         self.job_groups[job.rule.name].append(job)
         self.submit_jobs()
 
     def run_jobs(self, jobs: List[JobExecutorInterface]):
-        # I think it defaults to this and falls back to run_job
-        # otherwise for array jobs?
 
         if len(jobs) <= 1:
             self.run_job(jobs[0])
@@ -165,6 +162,9 @@ class Executor(RemoteExecutor):
             else:
                 # Submit single job normally
                 self.submit_single_job(jobs[0], home)
+
+        self.job_groups.clear()
+        self.array_jobs.clear()
 
 
     def submit_array_job(self, jobs, rule_name, home):
@@ -198,6 +198,7 @@ class Executor(RemoteExecutor):
             for index, job in enumerate(jobs):
                 print(f"{GREEN}Submitting sub-job {index} of array job {job_id} with rule {job.rule.name}{NOTGREEN}")
                 job_info = SubmittedJobInfo(job=job, external_jobid=f"{job_id}[{index}]")
+                job_info.is_array_job = True  # Mark as array job
                 self.report_job_submission(job_info)
         except subprocess.CalledProcessError as e:
             raise WorkflowError(f"Failed to submit array job: {e.stderr}")
@@ -226,33 +227,36 @@ class Executor(RemoteExecutor):
             )
             job_id = result.stdout.strip()
             job_info = SubmittedJobInfo(job=job, external_jobid=job_id)
+            job_info.is_array_job = False  # Mark as single job
             self.report_job_submission(job_info)
         except subprocess.CalledProcessError as e:
             raise WorkflowError(f"Failed to submit job: {e.stderr}")
+
+
 
     async def check_active_jobs(
         self, active_jobs: List[SubmittedJobInfo]
     ) -> Generator[SubmittedJobInfo, None, None]:
         async with self.status_rate_limiter:
-            for job in active_jobs:
-
-                # For array jobs this is (eg) 2302[] for the parent job, and 2302[0] for the subjobs
-                array_job = job.job.rule.name in self.array_jobs
-
-                cmd = f"qstat {job.external_jobid}"
+            for job_info in active_jobs:
+                job = job_info.job
+                array_job = getattr(job_info, 'is_array_job', False)
 
                 if array_job:
-
-                    # Parse the weird id format, e.g.,  2939[].pbs[9]
-                    # Let's assume this works perfectly for now...
-
-                    job_id, subjob_id = matches = re.findall(r'\d+', job.external_jobid)
-
+                    matches = re.findall(r'\d+', job_info.external_jobid)
+                    if len(matches) == 2:
+                        job_id, subjob_id = matches
+                    else:
+                        self.report_job_error(job_info)
+                        continue
                     cmd = f"qstat -t {job_id}[{subjob_id}]"
-
+                    name = f"{job.rule.name}.{subjob_id}"
+                else:
+                    cmd = f"qstat {job_info.external_jobid}"
+                    name = f"{job.rule.name}.{job.jobid}"
                 result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
 
-                name = f"{job.job.rule.name}.{subjob_id if array_job else job.job.jobid}"
+                name = f"{job.rule.name}.{subjob_id if array_job else job.jobid}"
 
                 if result.returncode != 0:  # Job is not found
 
@@ -267,18 +271,18 @@ class Executor(RemoteExecutor):
                         exit_status = int(statusline.split()[-1])
 
                         if exit_status != 0:
-                            self.report_job_error(job)
+                            self.report_job_error(job_info)
                             continue
                         else:
-                            self.report_job_success(job)
+                            self.report_job_success(job_info)
                             continue
-
-                    self.report_job_error(job)
+                    else:
+                        self.report_job_error(job_info)
                 elif " C " in result.stdout:  # PBS marks completed jobs with a " C "
-                    self.report_job_success(job)
+                    self.report_job_success(job_info)
                 else:
                     # Still running
-                    yield job
+                    yield job_info
 
     def cancel_jobs(self, active_jobs: List[SubmittedJobInfo]):
         for job in active_jobs:
